@@ -13,5 +13,5 @@ export abstract class Publisher {
     this.options = options;
   }
 
-  abstract publish<MessageType>(message: MessageType): void;
+  abstract publish<MessageType extends object>(message: MessageType): void;
 }
