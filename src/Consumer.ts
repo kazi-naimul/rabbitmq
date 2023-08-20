@@ -23,7 +23,7 @@ export abstract class Consumer {
     this.rabbitMQClient = new RabbitMQClient(this.url);
   }
 
-  abstract execute<MessageType>(message: MessageType): void;
+  abstract execute<MessageType extends object>(message: MessageType): void;
 
   async consume(): Promise<void> {
     try {
