@@ -1,22 +1,25 @@
 {
-  "name": "afrabbitmq",
-  "version": "1.0.0",
+  "name": "@aoyan107/rabbitmq",
+  "version": "1.0.1",
   "description": "This package will help to connect RabbitMQ, publish and consume messages",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "scripts": {
-    "build": "rimraf ./dist && tsc",
-    "start:dev": "nodemon",
-    "start": "npm run build && node dist/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "main": "dist/lib/index.js",
+  "types": "dist/lib/index.d.ts",
+  "author": "RoBenDevs",
+  "license": "MIT",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
   },
-  "author": "",
-  "license": "ISC",
+  "scripts": {
+    "build": "rimraf ./dist && tsc"
+  },
+  "devDependencies": {
+    "@types/node": "^20.6.0"
+  },
   "dependencies": {
-    "@types/node": "^20.2.5",
     "amqplib": "^0.10.3",
     "nodemon": "^2.0.22",
     "rimraf": "^5.0.1",
-    "typescript": "^5.0.4"
+    "ts-node": "^10.9.1",
+    "typescript": "^5.2.2"
   }
 }

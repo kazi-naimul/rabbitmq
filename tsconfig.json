@@ -1,11 +1,29 @@
 {
-    "compilerOptions": {
-      "module": "commonjs",
-      "target": "es2015",
-      "declaration": true,
-      "outDir": "./dist"
-    },
-    "include": [
-      "src/**/*"
-    ]
-  }
+  "compilerOptions": {
+    "rootDir": "./",
+    "outDir": "dist",
+    "module": "CommonJS",
+    "esModuleInterop": true,
+    "target": "es6",
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "allowJs": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "sourceMap": true,
+    "noImplicitAny": false,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "baseUrl": "./",
+    "declaration": true
+  },
+  "lib": ["es5", "es6"],
+  "include": [
+    "bin/**/*.ts",
+    "lib/**/*.ts",
+    "src/**/*.js",
+    "src/**/*.mjs",
+    "**/*.json"
+  ],
+  "exclude": ["node_modules", "dist", "coverage"]
+}
