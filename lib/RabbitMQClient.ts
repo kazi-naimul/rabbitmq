@@ -1,3 +1,5 @@
+/* eslint-disable no-prototype-builtins */
+/* eslint-disable no-self-assign */
 import * as amqp from "amqplib";
 
 declare type Options = {
@@ -10,6 +12,7 @@ declare type Options = {
 };
 export class RabbitMQClient {
   private static connection: amqp.Connection;
+
   private channel: amqp.Channel;
 
   public constructor(private url: string) {
@@ -170,6 +173,7 @@ export class RabbitMQClient {
       throw error;
     }
   }
+
   async consume(
     queue: string,
     callback: (message: amqp.ConsumeMessage | null) => void
@@ -191,13 +195,18 @@ export class RabbitMQClient {
           this.channel.ack(message);
         }
       }
-    } catch (error) {}
+    } catch (error) {
+      console.error(error);
+      throw error;
+    }
   }
+
   async nack(message: amqp.ConsumeMessage | null): Promise<void> {
     if (message) {
       await this.channel.nack(message);
     }
   }
+
   async getConsumerCount(queue: string): Promise<number> {
     try {
       const { consumerCount } = await this.channel.assertQueue(queue, {

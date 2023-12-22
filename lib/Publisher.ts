@@ -1,9 +1,11 @@
 import { RabbitMQClient } from "./RabbitMQClient";
-import  { RabbitMQConnection }  from "./RabbitMQConnection";
+import { RabbitMQConnection } from "./RabbitMQConnection";
 
 export abstract class Publisher {
   protected queueName: string;
+
   protected options: object;
+
   protected rabbitMQClient: RabbitMQClient;
 
   constructor(queueName: string, options = {}) {

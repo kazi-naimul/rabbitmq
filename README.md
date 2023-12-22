@@ -1,185 +1,128 @@
-# RabbitMQ-helper
-# RabbitMQ Consumer Class
+# RabbitMQ Helper
 
-The `Consumer` class is an abstract class that provides a foundation for implementing RabbitMQ consumers in TypeScript. It handles the process of connecting to a RabbitMQ server, consuming messages from a specified queue, and executing a callback function to process the received messages.
+## Installation
 
-## Class Overview
+To integrate the RabbitMQ Helper package into your project, use the following command:
 
-The `Consumer` class has the following properties:
-
-- `url` (string): The URL of the RabbitMQ server.
-- `queueName` (string): The name of the queue to consume messages from.
-- `retry` (boolean): Specifies whether to retry processing a message in case of an error. Defaults to `true`.
-- `retryCount` (number): The maximum number of retries before pushing a message to the error queue. Defaults to `3`.
-- `retryDelay` (number): The delay in milliseconds between retries. Defaults to `0`.
-- `rabbitMQClient` (RabbitMQClient): An instance of the `RabbitMQClient` class for interacting with RabbitMQ.
-
-## Class Methods
-
-### Constructor
-
-The `Consumer` class constructor takes the following parameters:
-
-- `url` (string): The URL of the RabbitMQ server.
-- `queueName` (string): The name of the queue to consume messages from.
-- `retry` (boolean, optional): Specifies whether to retry processing a message in case of an error. Defaults to `true`.
-- `retryCount` (number, optional): The maximum number of retries before pushing a message to the error queue. Defaults to `3`.
-- `retryDelay` (number, optional): The delay in milliseconds between retries. Defaults to `0`.
-
-### execute<MessageType>(message: MessageType): void
-
-An abstract method that needs to be implemented by the subclass. It defines the logic to be executed for each consumed message.
-
-- `message` (MessageType): The consumed message to be processed.
-
-### consume(): Promise<void>
-
-Starts consuming messages from the specified queue. This method connects to the RabbitMQ server, sets up the message consuming process, and executes the `execute` method for each consumed message.
+```bash
+yarn add @aoyan107/rabbitmq
+```
 
 ## Usage
 
-To use the `Consumer` class, follow these steps:
+### Establishing Connection
 
-1. Import the `RabbitMQClient` and `Consumer` classes:
+In your Express app's `app.js` file, establish a connection to RabbitMQ using the following code:
 
-```typescript
-import { RabbitMQClient } from "./RabbitMQClient";
-import { Consumer } from "./Consumer";
+```javascript
+import { RabbitMQConnection } from '@aoyan107/rabbitmq';
+
+RabbitMQConnection.connect('RABBITMQ_CONNECTION_URL');
 ```
 
-2. Create a subclass that extends the `Consumer` class and implement the `execute` method. For example:
+Replace `RABBITMQ_CONNECTION_URL` with your RabbitMQ server connection URL, formatted as `amqp://username:password@localhost:5672`.
 
-```typescript
-class MyConsumer extends Consumer {
-  execute<MessageType>(message: MessageType): void {
-    // Process the consumed message
-    console.log("Received message:", message);
-  }
+### Publishing a Message
+
+To publish a message, create a Publisher class by extending the provided `Publisher` class from the package. Here is an example:
+
+```javascript
+import { Publisher } from '@aoyan107/rabbitmq';
+
+export class PublishMessage extends Publisher {
+    constructor() {
+        const queueName = 'queue-name';
+        super(queueName);
+    }
+
+    async publish<MessageType>(message: MessageType): Promise<void> {
+        try {
+            const customOptions = {
+                exchange: `Exchange_name`,
+                routingKey: queue,
+                delay: 0,
+                exchangeType: "direct",
+                headers: {},
+            }; // Custom optional values, overwriting default options
+            await this.rabbitMQClient.publish(this.queueName, message, customOptions);
+        } catch (error) {
+            console.error('Error publishing messages:', error);
+        }
+    }
 }
 ```
 
-3. Instantiate the `MyConsumer` class with the required parameters:
+By default, the package uses the following options to publish a message:
 
-```typescript
-const url = "amqp://localhost";
-const queueName = "my_queue";
-const retry = true;
-const retryCount = 3;
-const retryDelay = 1000; // 1 second
-
-const consumer = new MyConsumer(url, queueName, retry, retryCount, retryDelay);
+```javascript
+const defaultOptions = {
+    exchange: `Exchange_${queue}`,
+    routingKey: queue,
+    delay: 0,
+    exchangeType: "direct",
+    headers: {},
+};
 ```
 
-4. Call the `consume` method to start consuming messages:
+You can customize these options as needed.
 
-```typescript
-consumer
-  .consume()
-  .then(() => {
-    console.log("Consuming messages...");
-  })
-  .catch((error) => {
-    console.error("Error consuming messages:", error);
-  });
+You can then use this class to publish messages anywhere in your application:
+
+```javascript
+const publisher = new PublishMessage();
+publisher.publish(publishJson);
 ```
 
-5. When a message is received, the `execute` method of your subclass will be called. Implement the desired logic inside the `execute` method to process the message.
+### Consuming Messages
 
-```typescript
-class MyConsumer extends Consumer {
-  execute<MessageType>(message: MessageType): void {
-    // Process the consumed message
-    console.log("Received message:", message);
+To consume messages, create a Consumer class by extending the provided `Consumer` class from the package. Here is an example:
 
-    // Implement your logic here
-  }
+```javascript
+import { Consumer } from '@aoyan107/rabbitmq';
+
+export class MyConsumer extends Consumer {
+    constructor() {
+        const queueName = 'queue-name';
+        const options = {
+            retry: true, // If true, messages will be queued again in case of an error (default is true)
+            retry_count: 3, // Maximum retry count, beyond which the message will be moved to an error queue
+            retry_delay: 0 // Delay in milliseconds for retries
+        };
+        super(queueName, options); // Options is an optional field
+    }
+
+    async execute<T extends object>(message: T): Promise<void> {
+        // Implement your own logic to handle the consumed message
+    }
 }
 ```
 
-That's it! You have now set up a RabbitMQ consumer using the `Consumer` class. The subclass can be customized to handle specific message processing logic for your application.
+Register your consumers in a file (e.g., `consumerRegister.ts`):
 
-# RabbitMQ Publisher Class
+```javascript
+import { MyConsumer } from './MyConsumer';
 
-The `Publisher` class is an abstract class that provides a foundation for implementing RabbitMQ publishers in TypeScript. It handles the process of connecting to a RabbitMQ server and publishing messages to a specified queue.
-
-## Class Overview
-
-The `Publisher` class has the following properties:
-
-- `url` (string): The URL of the RabbitMQ server.
-- `queueName` (string): The name of the queue to publish messages to.
-- `options` (object): Additional options for publishing messages.
-- `rabbitMQClient` (RabbitMQClient): An instance of the `RabbitMQClient` class for interacting with RabbitMQ.
-
-## Class Methods
-
-### Constructor
-
-The `Publisher` class constructor takes the following parameters:
-
-- `url` (string): The URL of the RabbitMQ server.
-- `queueName` (string): The name of the queue to publish messages to.
-- `options` (object, optional): Additional options for publishing messages.
-
-### publish<MessageType>(message: MessageType): void
-
-An abstract method that needs to be implemented by the subclass. It defines the logic to publish a message to the specified queue.
-
-- `message` (MessageType): The message to be published.
-
-## Usage
-
-To use the `Publisher` class, follow these steps:
-
-1. Import the `RabbitMQClient` and `Publisher` classes:
-
-```typescript
-import { RabbitMQClient } from "./RabbitMQClient";
-import { Publisher } from "./Publisher";
+export const consumerRegister: any[] = [new MyConsumer()];
 ```
 
-2. Create a subclass that extends the `Publisher` class and implement the `publish` method. For example:
+In your application, consume messages by iterating through the registered consumers:
 
-```typescript
-class MyPublisher extends Publisher {
-  publish<MessageType>(message: MessageType): void {
-    // Publish the message to the queue
-    console.log("Publishing message:", message);
-    this.rabbitMQClient.sendToQueue(this.queueName, message, this.options);
-  }
+```javascript
+import { consumerRegister } from './consumerRegister';
+
+// Consume messages from registered consumers
+for (const consumer of consumerRegister) {
+    consumer.consume();
 }
 ```
 
-3. Instantiate the `MyPublisher` class with the required parameters:
+Now, the `MyConsumer` class will process messages from the specified queue.
 
-```typescript
-const url = "amqp://localhost";
-const queueName = "my_queue";
-const options = {};
+Remember to replace `'queue-name'` with the actual queue name you want to use.
 
-const publisher = new MyPublisher(url, queueName, options);
-```
+## Notes
 
-4. Call the `publish` method to publish a message:
+- Replace placeholder values and adjust configurations according to your RabbitMQ setup.
+- For further customization, refer to the provided classes in the package and their methods.
 
-```typescript
-const message = { data: "Hello, RabbitMQ!" };
-
-publisher.publish(message);
-```
-
-5. The `publish` method of your subclass will be called, and the message will be published to the specified queue.
-
-```typescript
-class MyPublisher extends Publisher {
-  publish<MessageType>(message: MessageType): void {
-    // Publish the message to the queue
-    console.log("Publishing message:", message);
-    this.rabbitMQClient.sendToQueue(this.queueName, message, this.options);
-
-    // Implement your logic here
-  }
-}
-```
-
-That's it! You have now set up a RabbitMQ publisher using the `Publisher` class. The subclass can be customized to handle specific message publishing logic for your application.
+Feel free to reach out if you encounter any issues or have questions related to this package. Happy coding!
