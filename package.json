@@ -1,6 +1,6 @@
 {
   "name": "@aoyan107/rabbitmq",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "This package will help to connect RabbitMQ, publish and consume messages",
   "main": "dist/lib/index.js",
   "types": "dist/lib/index.d.ts",
