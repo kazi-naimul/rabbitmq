@@ -6,9 +6,6 @@
   "types": "dist/lib/index.d.ts",
   "author": "Kazi Naimul Hoque <naimul.aoyan107@gmail.com>",
   "license": "MIT",
-  "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
-  },
   "scripts": {
     "build": "rimraf ./dist && tsc",
     "lint": "eslint --ext .ts src",
