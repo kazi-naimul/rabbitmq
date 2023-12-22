@@ -4,7 +4,7 @@
   "description": "This package will help to connect RabbitMQ, publish and consume messages",
   "main": "dist/lib/index.js",
   "types": "dist/lib/index.d.ts",
-  "author": "Kazi Naimul Hoque",
+  "author": "Kazi Naimul Hoque <naimul.aoyan107@gmail.com>",
   "license": "MIT",
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
@@ -37,5 +37,21 @@
     "rimraf": "^5.0.1",
     "ts-node": "^10.9.1",
     "typescript": "^5.2.2"
-  }
+  },
+  "directories": {
+    "lib": "lib"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aoyan107/rabbitmq.git"
+  },
+  "keywords": [
+    "rabbitmq",
+    "typescript",
+    "RabbitMQ"
+  ],
+  "bugs": {
+    "url": "https://github.com/aoyan107/rabbitmq/issues"
+  },
+  "homepage": "https://github.com/aoyan107/rabbitmq#readme"
 }
