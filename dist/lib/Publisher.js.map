@@ -1,0 +1,1 @@
+{"version":3,"file":"Publisher.js","sourceRoot":"","sources":["../../lib/Publisher.ts"],"names":[],"mappings":";;;AACA,6DAA0D;AAE1D,MAAsB,SAAS;IAO7B,YAAY,SAAiB,EAAE,OAAO,GAAG,EAAE;QACzC,IAAI,CAAC,SAAS,GAAG,SAAS,CAAC;QAC3B,IAAI,CAAC,cAAc,GAAG,uCAAkB,CAAC,SAAS,EAAE,CAAC;QACrD,IAAI,CAAC,OAAO,GAAG,OAAO,CAAC;IACzB,CAAC;CAGF;AAdD,8BAcC"}

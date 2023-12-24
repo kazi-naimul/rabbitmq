@@ -5,7 +5,7 @@
 To integrate the RabbitMQ Helper package into your project, use the following command:
 
 ```bash
-yarn add @aoyan107/rabbitmq
+yarn add @kazinaimul/rabbitmq
 ```
 
 ## Usage
@@ -15,7 +15,7 @@ yarn add @aoyan107/rabbitmq
 In your Express app's `app.js` file, establish a connection to RabbitMQ using the following code:
 
 ```javascript
-import { RabbitMQConnection } from '@aoyan107/rabbitmq';
+import { RabbitMQConnection } from '@kazinaimul/rabbitmq';
 
 RabbitMQConnection.connect('RABBITMQ_CONNECTION_URL');
 ```
@@ -27,7 +27,7 @@ Replace `RABBITMQ_CONNECTION_URL` with your RabbitMQ server connection URL, form
 To publish a message, create a Publisher class by extending the provided `Publisher` class from the package. Here is an example:
 
 ```javascript
-import { Publisher } from '@aoyan107/rabbitmq';
+import { Publisher } from '@kazinaimul/rabbitmq';
 
 export class PublishMessage extends Publisher {
     constructor() {
@@ -78,7 +78,7 @@ publisher.publish(publishJson);
 To consume messages, create a Consumer class by extending the provided `Consumer` class from the package. Here is an example:
 
 ```javascript
-import { Consumer } from '@aoyan107/rabbitmq';
+import { Consumer } from '@kazinaimul/rabbitmq';
 
 export class MyConsumer extends Consumer {
     constructor() {

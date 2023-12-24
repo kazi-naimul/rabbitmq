@@ -1,6 +1,6 @@
 {
-  "name": "@aoyan107/rabbitmq",
-  "version": "1.0.2",
+  "name": "@kazinaimul/rabbitmq",
+  "version": "1.0.3",
   "description": "This package will help to connect RabbitMQ, publish and consume messages",
   "main": "dist/lib/index.js",
   "types": "dist/lib/index.d.ts",
@@ -40,7 +40,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/aoyan107/rabbitmq.git"
+    "url": "git+https://github.com/kazi-naimul/rabbitmq.git"
   },
   "keywords": [
     "rabbitmq",
@@ -48,7 +48,7 @@
     "RabbitMQ"
   ],
   "bugs": {
-    "url": "https://github.com/aoyan107/rabbitmq/issues"
+    "url": "https://github.com/kazi-naimul/rabbitmq/issues"
   },
-  "homepage": "https://github.com/aoyan107/rabbitmq#readme"
+  "homepage": "https://github.com/kazi-naimul/rabbitmq#readme"
 }
