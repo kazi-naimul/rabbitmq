@@ -8,6 +8,26 @@ To integrate the RabbitMQ Helper package into your project, use the following co
 yarn add @kazinaimul/rabbitmq
 ```
 
+## RabbitMQ Server
+You can use following docker file to create a RabbitMQ server:
+```
+FROM rabbitmq:3.12.0-management
+
+RUN apt-get update
+
+RUN apt-get install -y curl
+
+RUN curl -L https://github.com/rabbitmq/rabbitmq-delayed-message-exchange/releases/download/v3.12.0/rabbitmq_delayed_message_exchange-3.12.0.ez > $RABBITMQ_HOME/plugins/rabbitmq_delayed_message_exchange-3.12.0.ez
+
+RUN chown rabbitmq:rabbitmq $RABBITMQ_HOME/plugins/rabbitmq_delayed_message_exchange-3.12.0.ez
+
+RUN rabbitmq-plugins enable --offline rabbitmq_delayed_message_exchange
+
+RUN rabbitmq-plugins enable --offline rabbitmq_consistent_hash_exchange
+```
+# To be noted this package requires following plugins to enabled:
+    rabbitmq_delayed_message_exchange
+    rabbitmq_consistent_hash_exchange
 ## Usage
 
 ### Establishing Connection
@@ -38,8 +58,8 @@ export class PublishMessage extends Publisher {
     async publish<MessageType>(message: MessageType): Promise<void> {
         try {
             const customOptions = {
-                exchange: `Exchange_name`,
-                routingKey: queue,
+                exchange: `your-exchange_name`,
+                routingKey: queueName,
                 delay: 0,
                 exchangeType: "direct",
                 headers: {},
@@ -56,14 +76,14 @@ By default, the package uses the following options to publish a message:
 
 ```javascript
 const defaultOptions = {
-    exchange: `Exchange_${queue}`,
-    routingKey: queue,
+    exchange: `Exchange_${queueName}`,
+    routingKey: queueName,
     delay: 0,
     exchangeType: "direct",
     headers: {},
 };
 ```
-
+Here queueName is the given Queue Name while initialize the class.
 You can customize these options as needed.
 
 You can then use this class to publish messages anywhere in your application:
