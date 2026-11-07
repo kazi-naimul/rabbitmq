@@ -23,58 +23,77 @@ class Consumer {
         this.retryDelay = options.retry_delay; // it will use this value to as delay value in ms.
         this.rabbitMQClient = RabbitMQConnection_1.RabbitMQConnection.getClient();
     }
+    /** Dead-letter queue for this consumer: messages that could not be processed. */
+    get deadLetterQueue() {
+        return `${this.queueName}_error`;
+    }
+    /**
+     * Starts consuming. Waits for the broker if it is not reachable yet, and the
+     * subscription is restored automatically after a reconnect.
+     */
     consume() {
         return __awaiter(this, void 0, void 0, function* () {
             try {
                 yield this.rabbitMQClient.connect();
-                yield this.rabbitMQClient.consume(this.queueName, (message) => __awaiter(this, void 0, void 0, function* () {
-                    try {
-                        if (message) {
-                            const messageContent = JSON.parse(message.content.toString());
-                            yield this.execute(messageContent);
-                        }
-                        return true;
-                    }
-                    catch (error) {
-                        console.error("Error processing message:", error);
-                        if (!this.retry) {
-                            return false;
-                        }
-                        const headers = (message === null || message === void 0 ? void 0 : message.properties.headers) || {};
-                        let errorCount = headers.ErrorCount || 0;
-                        if (errorCount >= this.retryCount) {
-                            try {
-                                yield this.rabbitMQClient.sendToQueue(`${this.queueName}_error`, JSON.parse(message.content.toString()), {
-                                    delay: this.retryDelay,
-                                });
-                            }
-                            catch (sendError) {
-                                console.error("Error sending message to error queue:", sendError);
-                            }
-                        }
-                        else {
-                            errorCount += 1;
-                            try {
-                                yield this.rabbitMQClient.sendToQueue(this.queueName, JSON.parse(message.content.toString()), {
-                                    persistent: true,
-                                    delay: this.retryDelay,
-                                    headers: Object.assign(Object.assign({}, headers), { ErrorCount: errorCount, LastException: error.message }),
-                                });
-                            }
-                            catch (sendError) {
-                                console.error("Error requeueing message:", sendError);
-                            }
-                        }
-                        return false;
-                    }
-                    finally {
-                        yield this.rabbitMQClient.ack(message);
-                    }
-                }));
+                yield this.rabbitMQClient.consume(this.queueName, (message) => this.handle(message));
             }
             catch (error) {
                 console.error("Error consuming messages:", error);
             }
+        });
+    }
+    handle(message) {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (!message)
+                return; // the broker cancelled the consumer; it resubscribes on reconnect
+            let content;
+            try {
+                content = JSON.parse(message.content.toString());
+            }
+            catch (parseError) {
+                // A message that can never be parsed would fail every retry: dead-letter it as-is.
+                yield this.settle(message, () => this.deadLetter(message, message.content.toString(), parseError));
+                return;
+            }
+            try {
+                yield this.execute(content);
+                yield this.rabbitMQClient.ack(message);
+            }
+            catch (error) {
+                console.error("Error processing message:", error);
+                const headers = message.properties.headers || {};
+                const errorCount = Number(headers.ErrorCount || 0);
+                yield this.settle(message, () => this.retry && errorCount < this.retryCount
+                    ? this.rabbitMQClient.sendToQueue(this.queueName, content, {
+                        persistent: true,
+                        delay: this.retryDelay,
+                        headers: Object.assign(Object.assign({}, headers), { ErrorCount: errorCount + 1, LastException: error === null || error === void 0 ? void 0 : error.message }),
+                    })
+                    : this.deadLetter(message, content, error, errorCount));
+            }
+        });
+    }
+    // Acks only once the message is safely requeued or dead-lettered. If that
+    // fails it goes back to the queue instead of being lost.
+    settle(message, forward) {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                yield forward();
+                yield this.rabbitMQClient.ack(message);
+            }
+            catch (forwardError) {
+                console.error("Could not requeue or dead-letter message, returning it to the queue:", forwardError);
+                yield this.rabbitMQClient.nack(message, true);
+            }
+        });
+    }
+    deadLetter(message, content, error, errorCount) {
+        var _a;
+        if (errorCount === void 0) { errorCount = Number(((_a = message.properties.headers) === null || _a === void 0 ? void 0 : _a.ErrorCount) || 0); }
+        console.error(`Moving message to dead-letter queue ${this.deadLetterQueue}:`, error === null || error === void 0 ? void 0 : error.message);
+        return this.rabbitMQClient.sendToQueue(this.deadLetterQueue, content, {
+            persistent: true,
+            headers: Object.assign(Object.assign({}, (message.properties.headers || {})), { ErrorCount: errorCount, LastException: error === null || error === void 0 ? void 0 : error.message, "x-original-queue": this.queueName, "x-failed-at": new Date().toISOString() }),
         });
     }
 }

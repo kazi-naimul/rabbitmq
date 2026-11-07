@@ -140,6 +140,35 @@ Now, the `MyConsumer` class will process messages from the specified queue.
 
 Remember to replace `'queue-name'` with the actual queue name you want to use.
 
+## Reliability (since 1.1.0)
+
+Nothing to change in your code; upgrading is enough.
+
+- **Broker not up yet at start-up.** `RabbitMQConnection.connect()` keeps retrying in the background (1s, doubling to 30s) instead of failing once and leaving the client unusable. It never throws or leaves an unhandled rejection.
+- **Publishing before the connection is ready** waits for it (up to 30s) instead of failing with `Cannot read properties of undefined (reading 'assertExchange')`, then fails with a clear `RabbitMQ is not connected` error.
+- **Broker restart or network drop.** The connection and channel are re-opened automatically and every consumer is re-subscribed. A publish caught mid-restart is retried once on the new channel.
+- **Messages are persistent** by default, so they survive a broker restart. Pass `persistent: false` to opt out.
+
+Timings can be tuned if your broker takes longer to restart:
+
+```javascript
+import { RabbitMQClient } from '@kazinaimul/rabbitmq';
+
+RabbitMQClient.retryPolicy = { minDelayMs: 1000, maxDelayMs: 30000, channelWaitMs: 60000 };
+```
+
+## Dead-letter queue
+
+Every consumer has a dead-letter queue named `<queue>_error`. A message lands there when:
+
+- it fails more than `retry_count` times (each retry is requeued with `ErrorCount` and `LastException` headers, after `retry_delay` ms);
+- it fails and `retry` is `false`;
+- its body is not valid JSON (it is kept as the raw string).
+
+Dead-lettered messages keep their original headers and add `ErrorCount`, `LastException`, `x-original-queue` and `x-failed-at`. A message is only acknowledged once it has been retried or dead-lettered; if even that fails, it goes back to the original queue rather than being lost.
+
+To inspect or replay them, consume `<queue>_error` like any other queue (for example with a `Consumer` whose `retry` is `false`), or use the RabbitMQ management UI.
+
 ## Notes
 
 - Replace placeholder values and adjust configurations according to your RabbitMQ setup.
