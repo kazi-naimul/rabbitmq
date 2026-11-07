@@ -2,3 +2,7 @@ test/
 .husky/
 .github/
 Dockerfile
+dist/package-lock.json
+dist/tsconfig*.json
+.eslintrc.js
+tsconfig*.json
