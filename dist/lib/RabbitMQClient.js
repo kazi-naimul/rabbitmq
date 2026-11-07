@@ -15,13 +15,23 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -34,62 +44,216 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.RabbitMQClient = void 0;
 /* eslint-disable no-prototype-builtins */
-/* eslint-disable no-self-assign */
+// Reconnects and re-subscriptions must run one at a time, in order.
+/* eslint-disable no-await-in-loop, no-restricted-syntax */
 const amqp = __importStar(require("amqplib"));
+const sleep = (ms) => new Promise((resolve) => {
+    setTimeout(resolve, ms);
+});
 class RabbitMQClient {
     constructor(url) {
         this.url = url;
+        this.establishing = null;
+        this.closedByUser = false;
+        // Consumers to re-subscribe after a reconnect.
+        this.registrations = [];
+        // Which channel delivered a message: acks must go back to that channel, and
+        // are skipped once it is gone (the broker redelivers those messages).
+        this.deliveredOn = new WeakMap();
         this.url = url;
-        this.channel = this.channel;
+    }
+    /** @internal Clears the shared connection between tests. */
+    static resetForTests() {
+        RabbitMQClient.connection = null;
+        RabbitMQClient.connecting = null;
     }
     getChannel() {
         return this.channel;
     }
+    /**
+     * Opens the connection and a channel. Retries with backoff until the broker
+     * answers, so a broker that is still starting no longer leaves the client
+     * broken for the life of the process. Safe to call many times: callers share
+     * one attempt, and an open client resolves at once.
+     */
     connect() {
         return __awaiter(this, void 0, void 0, function* () {
-            try {
-                if (!RabbitMQClient.connection) {
-                    RabbitMQClient.connection = yield amqp.connect(this.url);
-                }
-                this.channel = yield RabbitMQClient.connection.createChannel();
+            this.closedByUser = false;
+            if (this.channel)
+                return;
+            if (!this.establishing) {
+                this.establishing = this.establish().finally(() => {
+                    this.establishing = null;
+                });
             }
-            catch (error) {
-                console.error("Error connecting to RabbitMQ:", error);
-                throw error;
+            yield this.establishing;
+        });
+    }
+    establish() {
+        return __awaiter(this, void 0, void 0, function* () {
+            var _a;
+            let delay = RabbitMQClient.retryPolicy.minDelayMs;
+            for (;;) {
+                if (this.closedByUser)
+                    return;
+                try {
+                    const connection = yield RabbitMQClient.sharedConnection(this.url);
+                    let channel;
+                    try {
+                        channel = yield connection.createChannel();
+                    }
+                    catch (channelError) {
+                        // A cached connection that died without a close event (half-open
+                        // TCP) would fail every retry; forget it so the next one reconnects.
+                        if (RabbitMQClient.connection === connection)
+                            RabbitMQClient.connection = null;
+                        throw channelError;
+                    }
+                    channel.on("error", (error) => {
+                        console.error("RabbitMQ channel error:", error.message);
+                    });
+                    channel.on("close", () => this.onChannelClosed(channel));
+                    yield this.resubscribe(channel);
+                    this.channel = channel;
+                    return;
+                }
+                catch (error) {
+                    console.error(`Error connecting to RabbitMQ, retrying in ${delay}ms:`, (_a = error === null || error === void 0 ? void 0 : error.message) !== null && _a !== void 0 ? _a : error);
+                    yield sleep(delay);
+                    delay = Math.min(delay * 2, RabbitMQClient.retryPolicy.maxDelayMs);
+                }
             }
         });
     }
-    publish(queue, message, options = {}) {
-        return __awaiter(this, void 0, void 0, function* () {
-            try {
-                // By default we use following defaultOptions to publish a message. To make sure the message is not consumed by multiple consumer unintentionally we
-                // are keeping routingKey value same as the queue name. This default options will be always overwritten by the given options.
-                const defaultOptions = {
-                    exchange: `Exchange_${queue}`,
-                    routingKey: queue,
-                    delay: 0,
-                    exchangeType: "direct",
-                    headers: {},
-                };
-                const mergedOptions = Object.assign(Object.assign({}, defaultOptions), options);
-                // Declare the delayed exchange
-                yield this.channel.assertExchange(`${mergedOptions.exchange}-delayed`, "x-delayed-message", {
-                    durable: true,
-                    arguments: {
-                        "x-delayed-type": mergedOptions.exchangeType,
-                    },
+    static sharedConnection(url) {
+        if (RabbitMQClient.connection)
+            return Promise.resolve(RabbitMQClient.connection);
+        if (!RabbitMQClient.connecting) {
+            RabbitMQClient.connecting = amqp
+                .connect(url)
+                .then((connection) => {
+                // Without an 'error' listener amqplib's error event would crash the process.
+                connection.on("error", (error) => {
+                    console.error("RabbitMQ connection error:", error.message);
                 });
-                // Declare the queue
-                yield this.channel.assertQueue(queue, { durable: true });
-                // Bind the queue to the delayed exchange with the routing key
-                yield this.channel.bindQueue(queue, `${mergedOptions.exchange}-delayed`, mergedOptions.routingKey);
-                const delayedMessage = {
-                    properties: {
+                connection.on("close", () => {
+                    if (RabbitMQClient.connection === connection)
+                        RabbitMQClient.connection = null;
+                });
+                RabbitMQClient.connection = connection;
+                return connection;
+            })
+                .finally(() => {
+                RabbitMQClient.connecting = null;
+            });
+        }
+        return RabbitMQClient.connecting;
+    }
+    // A closed channel (broker restart, network drop, channel error) is replaced
+    // in the background; consumers are re-subscribed on the new one.
+    onChannelClosed(channel) {
+        if (this.channel !== channel)
+            return;
+        this.channel = undefined;
+        if (this.closedByUser)
+            return;
+        console.error("RabbitMQ channel closed, reconnecting");
+        // Next tick: when the whole connection dropped, its channels close before
+        // the connection does, and reconnecting now would reuse the dead one.
+        setImmediate(() => {
+            this.connect().catch(() => undefined);
+        });
+    }
+    resubscribe(channel) {
+        return __awaiter(this, void 0, void 0, function* () {
+            for (const registration of this.registrations) {
+                yield this.subscribe(channel, registration);
+            }
+        });
+    }
+    subscribe(channel, registration) {
+        return __awaiter(this, void 0, void 0, function* () {
+            yield channel.assertQueue(registration.queue, { durable: true });
+            yield channel.consume(registration.queue, (message) => {
+                if (message)
+                    this.deliveredOn.set(message, channel);
+                return registration.callback(message);
+            }, { noAck: false });
+        });
+    }
+    /** Waits for an open channel, starting the connection if nobody has. */
+    ready() {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (this.channel)
+                return this.channel;
+            let timer;
+            const timeout = new Promise((resolve) => {
+                timer = setTimeout(resolve, RabbitMQClient.retryPolicy.channelWaitMs);
+            });
+            yield Promise.race([this.connect(), timeout]);
+            clearTimeout(timer);
+            if (!this.channel) {
+                throw new Error(`RabbitMQ is not connected (waited ${RabbitMQClient.retryPolicy.channelWaitMs}ms)`);
+            }
+            return this.channel;
+        });
+    }
+    /**
+     * Runs a channel operation. If the channel or connection died under it (a
+     * broker restart whose close event has not been processed yet), waits for
+     * the reconnect and runs it once more on the fresh channel.
+     */
+    withChannel(operation) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const channel = yield this.ready();
+            try {
+                yield operation(channel);
+            }
+            catch (error) {
+                if (!RabbitMQClient.isChannelGone(error))
+                    throw error;
+                if (this.channel === channel)
+                    this.onChannelClosed(channel);
+                yield operation(yield this.ready());
+            }
+        });
+    }
+    static isChannelGone(error) {
+        const { name, message } = (error !== null && error !== void 0 ? error : {});
+        return (name === "IllegalOperationError" ||
+            /Channel (closed|ended)|Connection closed|ECONNRESET|EPIPE/.test(message !== null && message !== void 0 ? message : ""));
+    }
+    publish(queue_1, message_1) {
+        return __awaiter(this, arguments, void 0, function* (queue, message, options = {}) {
+            try {
+                yield this.withChannel((channel) => __awaiter(this, void 0, void 0, function* () {
+                    // By default we use following defaultOptions to publish a message. To make sure the message is not consumed by multiple consumer unintentionally we
+                    // are keeping routingKey value same as the queue name. This default options will be always overwritten by the given options.
+                    const defaultOptions = {
+                        exchange: `Exchange_${queue}`,
+                        routingKey: queue,
+                        delay: 0,
+                        exchangeType: "direct",
+                        headers: {},
+                        persistent: true,
+                    };
+                    const mergedOptions = Object.assign(Object.assign({}, defaultOptions), options);
+                    // Declare the delayed exchange
+                    yield channel.assertExchange(`${mergedOptions.exchange}-delayed`, "x-delayed-message", {
+                        durable: true,
+                        arguments: {
+                            "x-delayed-type": mergedOptions.exchangeType,
+                        },
+                    });
+                    // Declare the queue
+                    yield channel.assertQueue(queue, { durable: true });
+                    // Bind the queue to the delayed exchange with the routing key
+                    yield channel.bindQueue(queue, `${mergedOptions.exchange}-delayed`, mergedOptions.routingKey);
+                    channel.publish(`${mergedOptions.exchange}-delayed`, mergedOptions.routingKey, Buffer.from(JSON.stringify(message)), {
+                        persistent: mergedOptions.persistent,
                         headers: Object.assign(Object.assign({}, mergedOptions.headers), { "x-delay": mergedOptions.delay }),
-                    },
-                    content: Buffer.from(JSON.stringify(message)),
-                };
-                yield this.channel.publish(`${mergedOptions.exchange}-delayed`, mergedOptions.routingKey, delayedMessage.content, delayedMessage.properties);
+                    });
+                }));
                 console.log("Message published:", message);
             }
             catch (error) {
@@ -98,46 +262,43 @@ class RabbitMQClient {
             }
         });
     }
-    sendToQueue(queue, message, options = {}) {
-        return __awaiter(this, void 0, void 0, function* () {
+    sendToQueue(queue_1, message_1) {
+        return __awaiter(this, arguments, void 0, function* (queue, message, options = {}) {
             try {
-                yield this.channel.assertQueue(queue, { durable: true });
-                // By default we use following defaultOptions to publish a message. To make sure the message is not consumed by multiple consumer unintentionally we
-                // are keeping routingKey value same as the queue name. This default options will be always overwritten by the given options.
-                const defaultOptions = {
-                    exchange: `Exchange_${queue}`,
-                    routingKey: queue,
-                    delay: 0,
-                    exchangeType: "direct",
-                    headers: {},
-                };
-                const mergedOptions = Object.assign(Object.assign({}, defaultOptions), options);
-                if (mergedOptions.delay && mergedOptions.delay > 0) {
-                    yield this.channel.assertExchange(`${mergedOptions.exchange}-delayed`, "x-delayed-message", {
-                        durable: true,
-                        arguments: {
-                            "x-delayed-type": mergedOptions.exchangeType,
-                        },
-                    });
-                    yield this.channel.bindQueue(queue, `${mergedOptions.exchange}-delayed`, mergedOptions.routingKey);
-                    const headers = {
-                        "x-delay": mergedOptions.delay,
+                yield this.withChannel((channel) => __awaiter(this, void 0, void 0, function* () {
+                    yield channel.assertQueue(queue, { durable: true });
+                    // By default we use following defaultOptions to publish a message. To make sure the message is not consumed by multiple consumer unintentionally we
+                    // are keeping routingKey value same as the queue name. This default options will be always overwritten by the given options.
+                    const defaultOptions = {
+                        exchange: `Exchange_${queue}`,
+                        routingKey: queue,
+                        delay: 0,
+                        exchangeType: "direct",
+                        headers: {},
+                        persistent: true,
                     };
-                    let mergedHeader = Object.assign({}, headers);
-                    if (options.hasOwnProperty("headers")) {
-                        mergedHeader = Object.assign(Object.assign({}, options.headers), headers);
+                    const mergedOptions = Object.assign(Object.assign({}, defaultOptions), options);
+                    if (mergedOptions.delay && mergedOptions.delay > 0) {
+                        yield channel.assertExchange(`${mergedOptions.exchange}-delayed`, "x-delayed-message", {
+                            durable: true,
+                            arguments: {
+                                "x-delayed-type": mergedOptions.exchangeType,
+                            },
+                        });
+                        yield channel.bindQueue(queue, `${mergedOptions.exchange}-delayed`, mergedOptions.routingKey);
+                        const headers = {
+                            "x-delay": mergedOptions.delay,
+                        };
+                        let mergedHeader = Object.assign({}, headers);
+                        if (options.hasOwnProperty("headers")) {
+                            mergedHeader = Object.assign(Object.assign({}, options.headers), headers);
+                        }
+                        channel.publish(`${mergedOptions.exchange}-delayed`, mergedOptions.routingKey, Buffer.from(JSON.stringify(message)), { persistent: mergedOptions.persistent, headers: mergedHeader });
                     }
-                    const delayedMessage = {
-                        properties: {
-                            headers: mergedHeader,
-                        },
-                        content: Buffer.from(JSON.stringify(message)),
-                    };
-                    yield this.channel.publish(`${mergedOptions.exchange}-delayed`, mergedOptions.routingKey, delayedMessage.content, delayedMessage.properties);
-                }
-                else {
-                    yield this.channel.sendToQueue(queue, Buffer.from(JSON.stringify(message)), options);
-                }
+                    else {
+                        channel.sendToQueue(queue, Buffer.from(JSON.stringify(message)), Object.assign(Object.assign({}, options), { persistent: mergedOptions.persistent }));
+                    }
+                }));
                 console.log("Message sent to queue:", queue);
             }
             catch (error) {
@@ -146,11 +307,17 @@ class RabbitMQClient {
             }
         });
     }
+    /**
+     * Consumes a queue. The subscription survives reconnects: after the broker
+     * comes back, it is re-established on the new channel.
+     */
     consume(queue, callback) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                yield this.channel.assertQueue(queue, { durable: true });
-                yield this.channel.consume(queue, callback, { noAck: false });
+                const channel = yield this.ready();
+                const registration = { queue, callback };
+                this.registrations.push(registration);
+                yield this.subscribe(channel, registration);
                 console.log("Consuming messages from queue:", queue);
             }
             catch (error) {
@@ -159,14 +326,21 @@ class RabbitMQClient {
             }
         });
     }
+    // The channel a message must be settled on, or null when that channel is
+    // gone (the broker has already put the message back on the queue).
+    settleChannel(message) {
+        var _a;
+        const channel = (_a = this.deliveredOn.get(message)) !== null && _a !== void 0 ? _a : this.channel;
+        return channel && channel === this.channel ? channel : null;
+    }
     ack(message) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                if (message) {
-                    if (message) {
-                        this.channel.ack(message);
-                    }
-                }
+                if (!message)
+                    return;
+                const channel = this.settleChannel(message);
+                if (channel)
+                    channel.ack(message);
             }
             catch (error) {
                 console.error(error);
@@ -174,17 +348,20 @@ class RabbitMQClient {
             }
         });
     }
-    nack(message) {
-        return __awaiter(this, void 0, void 0, function* () {
-            if (message) {
-                yield this.channel.nack(message);
-            }
+    nack(message_1) {
+        return __awaiter(this, arguments, void 0, function* (message, requeue = true) {
+            if (!message)
+                return;
+            const channel = this.settleChannel(message);
+            if (channel)
+                channel.nack(message, false, requeue);
         });
     }
     getConsumerCount(queue) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                const { consumerCount } = yield this.channel.assertQueue(queue, {
+                const channel = yield this.ready();
+                const { consumerCount } = yield channel.assertQueue(queue, {
                     durable: true,
                 });
                 console.log(`Consumer count for queue "${queue}": ${consumerCount}`);
@@ -198,12 +375,17 @@ class RabbitMQClient {
     }
     close() {
         return __awaiter(this, void 0, void 0, function* () {
+            this.closedByUser = true;
             try {
-                if (this.channel) {
-                    yield this.channel.close();
+                const { channel } = this;
+                this.channel = undefined;
+                if (channel) {
+                    yield channel.close();
                 }
                 if (RabbitMQClient.connection) {
-                    yield RabbitMQClient.connection.close();
+                    const { connection } = RabbitMQClient;
+                    RabbitMQClient.connection = null;
+                    yield connection.close();
                 }
                 console.log("Disconnected from RabbitMQ");
             }
@@ -215,4 +397,18 @@ class RabbitMQClient {
     }
 }
 exports.RabbitMQClient = RabbitMQClient;
+/**
+ * Reconnect and wait timings. The defaults suit production; change them only
+ * if your broker restarts take longer than half a minute.
+ */
+RabbitMQClient.retryPolicy = {
+    /** First wait after a failed connect; doubles up to maxDelayMs. */
+    minDelayMs: 1000,
+    maxDelayMs: 30000,
+    /** How long publish/sendToQueue wait for a connection before failing. */
+    channelWaitMs: 30000,
+};
+// One TCP connection per process, shared by every client, as before.
+RabbitMQClient.connection = null;
+RabbitMQClient.connecting = null;
 //# sourceMappingURL=RabbitMQClient.js.map

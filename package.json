@@ -1,6 +1,6 @@
 {
   "name": "@kazinaimul/rabbitmq",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "This package will help to connect RabbitMQ, publish and consume messages",
   "main": "dist/lib/index.js",
   "types": "dist/lib/index.d.ts",
@@ -8,7 +8,8 @@
   "license": "MIT",
   "scripts": {
     "build": "rimraf ./dist && tsc",
-    "lint": "eslint --ext .ts src",
+    "test": "node --require ts-node/register --test test/*.test.ts",
+    "lint": "eslint --ext .ts lib",
     "lint:fix": "eslint --ext .ts lib --fix",
     "prepare": "husky install .husky"
   },

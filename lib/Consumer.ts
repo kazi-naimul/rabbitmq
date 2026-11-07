@@ -1,3 +1,4 @@
+import type { ConsumeMessage } from "amqplib";
 import { RabbitMQClient } from "./RabbitMQClient";
 import { ConsumerOptions } from "./type";
 import { RabbitMQConnection } from "./RabbitMQConnection";
@@ -28,66 +29,106 @@ export abstract class Consumer {
     this.rabbitMQClient = RabbitMQConnection.getClient();
   }
 
+  /** Dead-letter queue for this consumer: messages that could not be processed. */
+  protected get deadLetterQueue(): string {
+    return `${this.queueName}_error`;
+  }
+
   abstract execute<MessageType extends object>(message: MessageType): void;
 
+  /**
+   * Starts consuming. Waits for the broker if it is not reachable yet, and the
+   * subscription is restored automatically after a reconnect.
+   */
   async consume(): Promise<void> {
     try {
       await this.rabbitMQClient.connect();
-      await this.rabbitMQClient.consume(this.queueName, async (message) => {
-        try {
-          if (message) {
-            const messageContent = JSON.parse(message.content.toString());
-            await this.execute(messageContent);
-          }
-          return true;
-        } catch (error: any) {
-          console.error("Error processing message:", error);
-
-          if (!this.retry) {
-            return false;
-          }
-
-          const headers = message?.properties.headers || {};
-          let errorCount = headers.ErrorCount || 0;
-          if (errorCount >= this.retryCount) {
-            try {
-              await this.rabbitMQClient.sendToQueue(
-                `${this.queueName}_error`,
-                JSON.parse(message.content.toString()),
-                {
-                  delay: this.retryDelay,
-                }
-              );
-            } catch (sendError) {
-              console.error("Error sending message to error queue:", sendError);
-            }
-          } else {
-            errorCount += 1;
-            try {
-              await this.rabbitMQClient.sendToQueue(
-                this.queueName,
-                JSON.parse(message.content.toString()),
-                {
-                  persistent: true,
-                  delay: this.retryDelay,
-                  headers: {
-                    ...headers,
-                    ErrorCount: errorCount,
-                    LastException: error.message,
-                  },
-                }
-              );
-            } catch (sendError) {
-              console.error("Error requeueing message:", sendError);
-            }
-          }
-          return false;
-        } finally {
-          await this.rabbitMQClient.ack(message);
-        }
-      });
+      await this.rabbitMQClient.consume(this.queueName, (message) =>
+        this.handle(message)
+      );
     } catch (error) {
       console.error("Error consuming messages:", error);
     }
+  }
+
+  private async handle(message: ConsumeMessage | null): Promise<void> {
+    if (!message) return; // the broker cancelled the consumer; it resubscribes on reconnect
+
+    let content: object;
+    try {
+      content = JSON.parse(message.content.toString());
+    } catch (parseError) {
+      // A message that can never be parsed would fail every retry: dead-letter it as-is.
+      await this.settle(message, () =>
+        this.deadLetter(
+          message,
+          message.content.toString(),
+          parseError as Error
+        )
+      );
+      return;
+    }
+
+    try {
+      await this.execute(content);
+      await this.rabbitMQClient.ack(message);
+    } catch (error: any) {
+      console.error("Error processing message:", error);
+      const headers = message.properties.headers || {};
+      const errorCount = Number(headers.ErrorCount || 0);
+      await this.settle(message, () =>
+        this.retry && errorCount < this.retryCount
+          ? this.rabbitMQClient.sendToQueue(this.queueName, content, {
+              persistent: true,
+              delay: this.retryDelay,
+              headers: {
+                ...headers,
+                ErrorCount: errorCount + 1,
+                LastException: error?.message,
+              },
+            })
+          : this.deadLetter(message, content, error, errorCount)
+      );
+    }
+  }
+
+  // Acks only once the message is safely requeued or dead-lettered. If that
+  // fails it goes back to the queue instead of being lost.
+  private async settle(
+    message: ConsumeMessage,
+    forward: () => Promise<void>
+  ): Promise<void> {
+    try {
+      await forward();
+      await this.rabbitMQClient.ack(message);
+    } catch (forwardError) {
+      console.error(
+        "Could not requeue or dead-letter message, returning it to the queue:",
+        forwardError
+      );
+      await this.rabbitMQClient.nack(message, true);
+    }
+  }
+
+  private deadLetter(
+    message: ConsumeMessage,
+    content: unknown,
+    error: Error,
+    errorCount = Number(message.properties.headers?.ErrorCount || 0)
+  ): Promise<void> {
+    console.error(
+      `Moving message to dead-letter queue ${this.deadLetterQueue}:`,
+      error?.message
+    );
+    return this.rabbitMQClient.sendToQueue(this.deadLetterQueue, content, {
+      persistent: true,
+      headers: {
+        ...(message.properties.headers || {}),
+        ErrorCount: errorCount,
+        LastException: error?.message,
+        "x-original-queue": this.queueName,
+        "x-failed-at": new Date().toISOString(),
+      },
+    });
   }
 }
