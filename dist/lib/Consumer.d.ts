@@ -5,6 +5,7 @@ export declare abstract class Consumer {
     protected retry: boolean;
     protected retryCount: number;
     protected retryDelay: number;
+    protected prefetch: number;
     protected rabbitMQClient: RabbitMQClient;
     constructor(queueName: string, options?: ConsumerOptions);
     /** Dead-letter queue for this consumer: messages that could not be processed. */

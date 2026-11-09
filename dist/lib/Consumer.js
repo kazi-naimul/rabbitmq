@@ -17,10 +17,12 @@ class Consumer {
         retry_count: 3,
         retry_delay: 0,
     }) {
+        var _a;
         this.queueName = queueName;
         this.retry = options.retry; // if it is true message will be queued again when there is an error, by default it is true.
         this.retryCount = options.retry_count; // it will retry not more this value, if there is more error it message will be pushed to error queue.
         this.retryDelay = options.retry_delay; // it will use this value to as delay value in ms.
+        this.prefetch = (_a = options.prefetch) !== null && _a !== void 0 ? _a : 0; // most messages worked on at once; 0 is unlimited.
         this.rabbitMQClient = RabbitMQConnection_1.RabbitMQConnection.getClient();
     }
     /** Dead-letter queue for this consumer: messages that could not be processed. */
@@ -35,7 +37,7 @@ class Consumer {
         return __awaiter(this, void 0, void 0, function* () {
             try {
                 yield this.rabbitMQClient.connect();
-                yield this.rabbitMQClient.consume(this.queueName, (message) => this.handle(message));
+                yield this.rabbitMQClient.consume(this.queueName, (message) => this.handle(message), { prefetch: this.prefetch });
             }
             catch (error) {
                 console.error("Error consuming messages:", error);

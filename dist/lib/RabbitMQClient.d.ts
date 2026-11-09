@@ -8,6 +8,9 @@ declare type Options = {
     headers?: object;
 };
 type MessageHandler = (message: amqp.ConsumeMessage | null) => void;
+export type ConsumeOptions = {
+    prefetch?: number;
+};
 export declare class RabbitMQClient {
     private url;
     /**
@@ -59,7 +62,7 @@ export declare class RabbitMQClient {
      * Consumes a queue. The subscription survives reconnects: after the broker
      * comes back, it is re-established on the new channel.
      */
-    consume(queue: string, callback: MessageHandler): Promise<void>;
+    consume(queue: string, callback: MessageHandler, options?: ConsumeOptions): Promise<void>;
     private settleChannel;
     ack(message: amqp.ConsumeMessage | null): Promise<void>;
     nack(message: amqp.ConsumeMessage | null, requeue?: boolean): Promise<void>;

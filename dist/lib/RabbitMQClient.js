@@ -174,6 +174,9 @@ class RabbitMQClient {
     subscribe(channel, registration) {
         return __awaiter(this, void 0, void 0, function* () {
             yield channel.assertQueue(registration.queue, { durable: true });
+            // Per-consumer limit (global=false) for the consumer started next. Always
+            // set, so one consumer's limit never leaks onto the next on this channel.
+            yield channel.prefetch(registration.prefetch, false);
             yield channel.consume(registration.queue, (message) => {
                 if (message)
                     this.deliveredOn.set(message, channel);
@@ -311,11 +314,12 @@ class RabbitMQClient {
      * Consumes a queue. The subscription survives reconnects: after the broker
      * comes back, it is re-established on the new channel.
      */
-    consume(queue, callback) {
-        return __awaiter(this, void 0, void 0, function* () {
+    consume(queue_1, callback_1) {
+        return __awaiter(this, arguments, void 0, function* (queue, callback, options = {}) {
+            var _a;
             try {
                 const channel = yield this.ready();
-                const registration = { queue, callback };
+                const registration = { queue, callback, prefetch: (_a = options.prefetch) !== null && _a !== void 0 ? _a : 0 };
                 this.registrations.push(registration);
                 yield this.subscribe(channel, registration);
                 console.log("Consuming messages from queue:", queue);
