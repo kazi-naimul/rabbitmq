@@ -12,6 +12,8 @@ export abstract class Consumer {
 
   protected retryDelay: number;
 
+  protected prefetch: number;
+
   protected rabbitMQClient: RabbitMQClient;
 
   constructor(
@@ -26,6 +28,7 @@ export abstract class Consumer {
     this.retry = options.retry; // if it is true message will be queued again when there is an error, by default it is true.
     this.retryCount = options.retry_count; // it will retry not more this value, if there is more error it message will be pushed to error queue.
     this.retryDelay = options.retry_delay; // it will use this value to as delay value in ms.
+    this.prefetch = options.prefetch ?? 0; // most messages worked on at once; 0 is unlimited.
     this.rabbitMQClient = RabbitMQConnection.getClient();
   }
 
@@ -43,8 +46,10 @@ export abstract class Consumer {
   async consume(): Promise<void> {
     try {
       await this.rabbitMQClient.connect();
-      await this.rabbitMQClient.consume(this.queueName, (message) =>
-        this.handle(message)
+      await this.rabbitMQClient.consume(
+        this.queueName,
+        (message) => this.handle(message),
+        { prefetch: this.prefetch }
       );
     } catch (error) {
       console.error("Error consuming messages:", error);

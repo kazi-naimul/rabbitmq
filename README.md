@@ -106,7 +106,8 @@ export class MyConsumer extends Consumer {
         const options = {
             retry: true, // If true, messages will be queued again in case of an error (default is true)
             retry_count: 3, // Maximum retry count, beyond which the message will be moved to an error queue
-            retry_delay: 0 // Delay in milliseconds for retries
+            retry_delay: 0, // Delay in milliseconds for retries
+            prefetch: 10 // Optional: most messages worked on at once (omit or 0 for no limit)
         };
         super(queueName, options); // Options is an optional field
     }

@@ -128,3 +128,27 @@ test("consume waits for the broker instead of giving up", async () => {
   await deliver({ id: 7 });
   assert.deepEqual(c.handled, [{ id: 7 }]);
 });
+
+const prefetches = (ch: any) => ch.calls.filter((c: any) => c.method === "prefetch").map((c: any) => c.args);
+
+test("a consumer's prefetch is set on the channel before it subscribes", async () => {
+  const c = new Jobs({ retry: true, retry_count: 3, retry_delay: 0, prefetch: 5 });
+  await c.consume();
+  const ch = fake.channels().at(-1)!;
+  assert.deepEqual(prefetches(ch), [[5, false]]);
+  const order = ch.calls.map((x: any) => x.method);
+  assert.ok(order.indexOf("prefetch") < order.indexOf("consume"));
+});
+
+test("a consumer without prefetch resets the limit to unlimited", async () => {
+  await new Jobs({ retry: true, retry_count: 3, retry_delay: 0, prefetch: 5 }).consume();
+  await new Jobs().consume();
+  assert.deepEqual(prefetches(fake.channels().at(-1)!), [[5, false], [0, false]]);
+});
+
+test("prefetch is restored when the consumer re-subscribes after a reconnect", async () => {
+  await new Jobs({ retry: true, retry_count: 3, retry_delay: 0, prefetch: 7 }).consume();
+  fake.connections[0].drop();
+  await until(() => fake.connections[1]?.channels[0]?.consumers.length);
+  assert.deepEqual(prefetches(fake.connections[1].channels[0]), [[7, false]]);
+});

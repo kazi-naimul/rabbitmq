@@ -14,7 +14,13 @@ declare type Options = {
 
 type MessageHandler = (message: amqp.ConsumeMessage | null) => void;
 
-type Registration = { queue: string; callback: MessageHandler };
+type Registration = {
+  queue: string;
+  callback: MessageHandler;
+  prefetch: number;
+};
+
+export type ConsumeOptions = { prefetch?: number };
 
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => {
@@ -167,6 +173,9 @@ export class RabbitMQClient {
     registration: Registration
   ): Promise<void> {
     await channel.assertQueue(registration.queue, { durable: true });
+    // Per-consumer limit (global=false) for the consumer started next. Always
+    // set, so one consumer's limit never leaks onto the next on this channel.
+    await channel.prefetch(registration.prefetch, false);
     await channel.consume(
       registration.queue,
       (message) => {
@@ -359,10 +368,14 @@ export class RabbitMQClient {
    * Consumes a queue. The subscription survives reconnects: after the broker
    * comes back, it is re-established on the new channel.
    */
-  async consume(queue: string, callback: MessageHandler): Promise<void> {
+  async consume(
+    queue: string,
+    callback: MessageHandler,
+    options: ConsumeOptions = {}
+  ): Promise<void> {
     try {
       const channel = await this.ready();
-      const registration = { queue, callback };
+      const registration = { queue, callback, prefetch: options.prefetch ?? 0 };
       this.registrations.push(registration);
       await this.subscribe(channel, registration);
       console.log("Consuming messages from queue:", queue);

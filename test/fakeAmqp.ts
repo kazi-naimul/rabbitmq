@@ -14,6 +14,7 @@ export class FakeChannel extends EventEmitter {
   async bindQueue(...args: any[]) { this.record("bindQueue", args); }
   publish(...args: any[]) { this.record("publish", args); if (fake.failPublish) throw new Error("publish failed"); return true; }
   sendToQueue(...args: any[]) { this.record("sendToQueue", args); if (fake.failSendToQueue) throw new Error("send failed"); return true; }
+  async prefetch(...args: any[]) { this.record("prefetch", args); }
   async consume(queue: string, callback: (m: any) => any) {
     this.record("consume", [queue]);
     this.consumers.push({ queue, callback });
