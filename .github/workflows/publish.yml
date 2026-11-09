@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write # create the GitHub release
   id-token: write # npm provenance
 
 jobs:
@@ -55,3 +55,9 @@ jobs:
           # Granular or automation token with publish rights; bypasses the
           # interactive 2FA prompt that blocks CI.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub release
+        if: steps.version.outputs.publish == 'true'
+        run: gh release create "v${{ steps.version.outputs.version }}" --target "$GITHUB_SHA" --title "v${{ steps.version.outputs.version }}" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
